@@ -4,12 +4,24 @@ set -euo pipefail
 SMB_HOST="${SMB_HOST:-192.168.0.250}"
 SMB_SHARE="${SMB_SHARE:-SharedFolder}"
 SMB_USER="${SMB_USER:-xpuser}"
-SMB_PASS="${SMB_PASS:-xppass123}"
+SMB_PASS="${SMB_PASS:-}"
 SMB_WORKGROUP="${SMB_WORKGROUP:-WORKGROUP}"
 LOCAL_USER="${LOCAL_USER:-smbuser}"
-LOCAL_PASSWORD="${LOCAL_PASSWORD:-smbpass123}"
+LOCAL_PASSWORD="${LOCAL_PASSWORD:-}"
 MOUNT_ROOT="${MOUNT_ROOT:-/mnt/xp}"
 WAIT_TIMEOUT="${WAIT_TIMEOUT:-30}"
+
+# No default passwords: both must be set explicitly
+missing=0
+if [[ -z "${SMB_PASS}" ]]; then
+    echo "ERROR: SMB_PASS is not set (password of ${SMB_USER} on the legacy SMBv1 server)" >&2
+    missing=1
+fi
+if [[ -z "${LOCAL_PASSWORD}" ]]; then
+    echo "ERROR: LOCAL_PASSWORD is not set (password of ${LOCAL_USER} for the SMB2/SMB3 clients)" >&2
+    missing=1
+fi
+(( missing == 0 )) || exit 1
 
 mkdir -p /root/.smb "${MOUNT_ROOT}" /run/samba /var/lib/samba/private
 

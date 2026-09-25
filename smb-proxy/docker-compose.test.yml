@@ -1,0 +1,36 @@
+# Local test setup on a workstation: XP simulator and proxy on one Docker
+# host (bridge network). Needs /dev/fuse and --privileged for the proxy.
+#   XP_PASSWORD=... LOCAL_PASSWORD=... docker compose -f docker-compose.test.yml up --build
+#   smbclient //localhost/xp-share -p 8445 -U smbuser%$LOCAL_PASSWORD -m SMB3 -c ls
+services:
+  xp-sim:
+    build:
+      context: .
+      dockerfile: Dockerfile.xp-sim
+    environment:
+      - XP_PASSWORD=${XP_PASSWORD:?set XP_PASSWORD}
+    volumes:
+      - xp-data:/share
+
+  samba-proxy:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    privileged: true
+    devices:
+      - /dev/fuse:/dev/fuse
+    environment:
+      - SMB_HOST=xp-sim
+      - SMB_SHARE=SharedFolder
+      - SMB_USER=xpuser
+      - SMB_PASS=${XP_PASSWORD:?set XP_PASSWORD}
+      - LOCAL_USER=smbuser
+      - LOCAL_PASSWORD=${LOCAL_PASSWORD:?set LOCAL_PASSWORD}
+      - WAIT_TIMEOUT=60
+    ports:
+      - "8445:445"
+    depends_on:
+      - xp-sim
+
+volumes:
+  xp-data:

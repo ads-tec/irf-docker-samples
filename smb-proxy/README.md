@@ -19,9 +19,11 @@ docker run -d --name samba-proxy --restart always \
 | Variable | Meaning |
 |---|---|
 | `SMB_HOST`, `SMB_SHARE` | Legacy SMBv1 server and share |
-| `SMB_USER`, `SMB_PASS`, `SMB_WORKGROUP` | Credentials on the legacy side |
-| `LOCAL_USER`, `LOCAL_PASSWORD` | Credentials modern clients use for `\\<irf>\xp-share` |
+| `SMB_USER`, `SMB_PASS`, `SMB_WORKGROUP` | Credentials on the legacy side; `SMB_PASS` is required |
+| `LOCAL_USER`, `LOCAL_PASSWORD` | Credentials modern clients use for `\\<irf>\xp-share`; `LOCAL_PASSWORD` is required |
 | `WAIT_TIMEOUT` | Seconds to wait for the legacy share at start |
+
+There are no default passwords: the container does not start without `SMB_PASS` and `LOCAL_PASSWORD`.
 
 Modern clients connect to TCP port 445 of the IRF, which the IRF forwards to the container. Setup, port forwarding and known issues are described in the **Docker Application Note** of ADS-TEC Industrial IT.
 
@@ -43,13 +45,20 @@ docker run -d --name xp-sim --restart always --network host \
   adstec/irf-smb-xp-sim
 ```
 
-User `xpuser`, share `SharedFolder`, TCP ports 445 and 139.
+User `xpuser` with the password from `XP_PASSWORD` (required), share `SharedFolder`, TCP ports 445 and 139.
 
 Run it on a **separate** IRF (or another host), not on the IRF that runs the proxy: the simulator has to appear on the LAN at the address of the legacy server, and both containers would need the same SMB port in the rootless Docker namespace. Details are in the **Docker Application Note** of ADS-TEC Industrial IT.
 
 ## Files
 
-Dockerfile, entrypoint.sh, smb.conf (proxy); Dockerfile.xp-sim, entrypoint-xp.sh, smb-xp.conf (XP simulator); docker-compose.yml, setup_forwarding.py
+Dockerfile, entrypoint.sh, smb.conf (proxy); Dockerfile.xp-sim, entrypoint-xp.sh, smb-xp.conf (XP simulator); docker-compose.yml (proxy on the IRF), docker-compose.test.yml (proxy and XP simulator together on a workstation), setup_forwarding.py
+
+Local test on a workstation:
+
+```bash
+XP_PASSWORD=... LOCAL_PASSWORD=... docker compose -f docker-compose.test.yml up --build
+smbclient //localhost/xp-share -p 8445 -U smbuser -m SMB3 -c ls
+```
 
 ## Build from source
 

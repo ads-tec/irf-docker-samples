@@ -1,9 +1,15 @@
 #!/bin/sh
 set -e
 
+# No default password: XP_PASSWORD must be set explicitly
+if [ -z "${XP_PASSWORD:-}" ]; then
+    echo "ERROR: XP_PASSWORD is not set (password of xpuser on the simulated share)" >&2
+    exit 1
+fi
+
 # Create XP share user
 adduser -D -H xpuser 2>/dev/null || true
-echo -e "${XP_PASSWORD:-xppass123}\n${XP_PASSWORD:-xppass123}" | smbpasswd -a -s xpuser
+printf '%s\n%s\n' "${XP_PASSWORD}" "${XP_PASSWORD}" | smbpasswd -a -s xpuser
 
 # Create some test files
 mkdir -p /share
