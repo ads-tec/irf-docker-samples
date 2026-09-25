@@ -1,0 +1,22 @@
+# SMBv1 to SMB3 proxy. Run on the IRF (DOCKER_HOST=tcp://<irf>:2375).
+# The XP simulator (Dockerfile.xp-sim) runs on a separate IRF or host.
+services:
+  samba-proxy:
+    image: adstec/irf-smb-proxy:latest
+    container_name: samba-proxy
+    restart: always
+    network_mode: host
+    privileged: true
+    devices:
+      - /dev/fuse:/dev/fuse
+    security_opt:
+      - label=disable
+    environment:
+      - SMB_HOST=192.168.0.1          # legacy SMBv1 server
+      - SMB_SHARE=SharedFolder
+      - SMB_USER=xpuser
+      - SMB_PASS=change-me            # password on the legacy server
+      - SMB_WORKGROUP=WORKGROUP
+      - LOCAL_USER=smbuser
+      - LOCAL_PASSWORD=change-me      # password for the modern clients
+      - WAIT_TIMEOUT=60

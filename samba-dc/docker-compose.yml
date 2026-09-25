@@ -1,0 +1,22 @@
+# Run on the IRF (DOCKER_HOST=tcp://192.168.0.254:2375). The image must be
+# loaded/pulled beforehand - the IRF has no internet access to build.
+services:
+  samba-dc:
+    image: adstec/irf-samba-dc:latest
+    container_name: samba-dc
+    hostname: dc1
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      - REALM=IRF.LAN
+      - DOMAIN=IRF
+      - DC_HOSTNAME=DC1
+      # - ADMIN_PASSWORD=...   # unset: random password, printed once to the log
+      - HOST_IP=192.168.0.254
+      - RPC_PORT_RANGE=49152-49172
+    volumes:
+      - samba-dc-data:/var/lib/samba
+
+volumes:
+  samba-dc-data:
+    name: samba-dc-data

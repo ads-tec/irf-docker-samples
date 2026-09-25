@@ -1,0 +1,17 @@
+# Run on the IRF (DOCKER_HOST=tcp://192.168.0.254:2375). Requires "Access to
+# RS485" on the IRF Docker settings page (docker_use_rs485_device).
+services:
+  modbus-gw:
+    image: adstec/irf-modbus-gw:latest
+    container_name: modbus-gw
+    restart: unless-stopped
+    network_mode: host
+    devices:
+      - /dev/ttyS1:/dev/ttyS1
+    environment:
+      - SERIAL_DEVICE=/dev/ttyS1
+      - SERIAL_SPEED=19200
+      - SERIAL_MODE=8E1          # data bits, parity (N/E/O), stop bits
+      - TCP_PORT=502
+      - WAIT_MS=500              # response timeout per request
+      - RETRIES=3

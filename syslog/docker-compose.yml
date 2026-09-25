@@ -1,0 +1,23 @@
+# Run on the IRF (DOCKER_HOST=tcp://192.168.0.254:2375). The image must be
+# loaded/pulled beforehand if the IRF has no internet access.
+services:
+  syslog:
+    image: adstec/irf-syslog:latest
+    container_name: syslog
+    hostname: syslog
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      - LOG_MAX_SIZE=1G          # total size cap of the log volume
+      - LOG_RETENTION_DAYS=90
+      - TLS=yes                  # tls/6514 with a self-signed certificate
+      - TZ=UTC                   # time zone for RFC 3164 messages and file names
+      - SSH=yes                  # read-only log access: ssh -p 2222 logs@<irf>
+      # - SSH_PASSWORD=...       # unset: random, printed once, kept in .sshd/password
+      # - SSH_AUTHORIZED_KEYS=ssh-ed25519 AAAA... user@host
+    volumes:
+      - syslog-data:/var/log/remote
+
+volumes:
+  syslog-data:
+    name: syslog-data

@@ -1,0 +1,12 @@
+
+  syslog-ng log collector - read-only log access
+
+  Logs:   /var/log/remote/<host>/<YYYY-MM-DD_HH>.log   (older hours: .log.gz)
+
+  lnav -r /var/log/remote                  browse all senders, merged by time
+  lnav /var/log/remote/<host>              one sender (.gz files included)
+  rg -z 'pattern' /var/log/remote          search everything, incl. .gz
+  rg -z -i 'error' /var/log/remote/<host>  case-insensitive, one sender
+
+  lnav: '/' search, 'q' quit, ':filter-in <regex>', 'e'/'E' next/prev error
+

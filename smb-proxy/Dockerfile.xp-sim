@@ -1,0 +1,22 @@
+FROM alpine
+
+# HTTP_PROXY / HTTPS_PROXY are predefined build args in Docker; pass them with
+# --build-arg only when building behind an HTTP proxy. They are NOT baked
+# into the final image.
+
+# Some build networks intercept HTTPS (TLS-inspecting proxies). apk verifies
+# package signatures, so the build fetches over HTTP and restores the HTTPS
+# repositories afterwards.
+RUN sed -i 's|^https://|http://|' /etc/apk/repositories && \
+    apk add --no-cache samba && \
+    sed -i 's|^http://|https://|' /etc/apk/repositories
+
+COPY smb-xp.conf /etc/samba/smb.conf
+COPY entrypoint-xp.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+RUN mkdir -p /share
+VOLUME /share
+EXPOSE 445
+
+ENTRYPOINT ["/entrypoint.sh"]
