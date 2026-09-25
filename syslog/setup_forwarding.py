@@ -49,14 +49,33 @@ def comment(proto, service):
     return f"{COMMENT_PREFIX} {service} {proto}"
 
 
+def default_interface(dev, address, fallback_var):
+    """Linux interface that holds the given IRF address.
+
+    In "IP router (extended)" mode the LAN address is on a port interface
+    (e.g. lan_port1 = ETH2) and lan_ifname still names the unused bridge, so
+    look up the symbolic interface whose IP address matches.
+    """
+    symbolic = dev.status("symbolic_ifnames_with_umts_with_ipsec").split()
+    for name in symbolic:
+        try:
+            res = dev.config_get([f"{name}_ipaddr", f"{name}_ifname"])["result"]
+        except Exception:
+            continue
+        values = {k: v for d in res for k, v in d.items()}
+        if values.get(f"{name}_ipaddr") == address and values.get(f"{name}_ifname"):
+            return values[f"{name}_ifname"]
+    return dev.config_get([fallback_var])["result"][0][fallback_var]
+
+
 def parse_args():
     p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0],
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--device", default="192.168.0.254", help="IRF address (default: %(default)s)")
     p.add_argument("--user", default="admin", help="IRF user (default: %(default)s)")
     p.add_argument("--password", help="IRF password (asked for if omitted)")
-    p.add_argument("--interface", help="Linux interface name to forward from "
-                   "(default: the IRF LAN interface, config variable lan_ifname)")
+    p.add_argument("--interface", help="Linux interface name to forward from (default: the "
+                   "interface that holds --device, else the IRF LAN interface)")
     p.add_argument("--docker-ip", default="10.0.3.100",
                    help="address of the Docker namespace, pinned via Docker DHCP (default: %(default)s)")
     p.add_argument("--no-save", action="store_true", help="apply the settings, but do not save them")
@@ -69,13 +88,13 @@ def main():
     args = parse_args()
     password = args.password or getpass.getpass(f"Password for {args.user}@{args.device}: ")
     dev = jsonrpcdevice.AdstecJSONRPCDevice(args.device, args.user, password)
-    ifname = args.interface or dev.config_get(["lan_ifname"])["result"][0]["lan_ifname"]
+    ifname = args.interface or default_interface(dev, args.device, "lan_ifname")
     ports = PORTS
 
+    # Settings, then delete the rules of this sample and verify it. Deleting
+    # and inserting in the same session is not reliable on the IRF (row ids
+    # and positions shift), so deletes and inserts use separate sessions.
     cfg = dev.sess_start()
-
-    # Enable Docker and pin the Docker DHCP pool to one address, so the
-    # forwarding target stays stable
     settings = {
         "docker_status": "enabled",
         "dhcp_startip_docker": args.docker_ip,
@@ -90,16 +109,25 @@ def main():
             "syslog_remote_audit": "enabled",
         })
     dev.config_set(cfg, settings)
+    dev.sess_commit(cfg)
+    own_comments = {comment(p, s) for p, _, s in ALL_PORTS}
+    for _ in range(5):
+        existing = dev.call("config", "table_get", tablename="forwarding", condition={})["forwarding"]
+        own = [r for r in existing if r["fwcomment"] in own_comments]
+        if not own:
+            break
+        cfg = dev.sess_start()
+        for r in own:
+            dev.table_del("forwarding", cfg, condition={"rowid": r["rowid"]})
+        dev.sess_commit(cfg)
+    else:
+        sys.exit("ERROR: could not remove the existing rules of this sample")
 
-    # Replace the rules of this sample, append them after all other rules
-    for proto, _, service in ALL_PORTS:
-        try:
-            dev.table_del("forwarding", cfg, condition={"fwcomment": comment(proto, service)})
-        except Exception:
-            pass
+    # Append the rules after the last rule in use
     existing = dev.call("config", "table_get", tablename="forwarding", condition={})["forwarding"]
-    first = len([r for r in existing if not r["fwcomment"].startswith(COMMENT_PREFIX + " ")]) + 1
-
+    positions = [int(r["fwposition"]) for r in existing if str(r.get("fwposition", "")).isdigit()]
+    first = max(positions, default=0) + 1
+    cfg = dev.sess_start()
     for position, (proto, port, service) in enumerate(ports, start=first):
         dev.table_insert("forwarding", cfg, [
             ifname,                  # fwifname
@@ -117,7 +145,14 @@ def main():
         ])
     dev.sess_commit(cfg)
 
+    # Verify that every rule of this sample exists
     rules = dev.call("config", "table_get", tablename="forwarding", condition={})["forwarding"]
+    counts = {}
+    for r in rules:
+        counts[r["fwcomment"]] = counts.get(r["fwcomment"], 0) + 1
+    wrong = [f"{comment(p, s)} ({counts.get(comment(p, s), 0)}x)" for p, _, s in ports if counts.get(comment(p, s), 0) != 1]
+    if wrong:
+        sys.exit("ERROR: forwarding rules not as expected after commit: " + ", ".join(wrong))
     print(f"Forwarding rules on {ifname} -> {args.docker_ip}:")
     for r in rules:
         if r["fwcomment"].startswith(COMMENT_PREFIX + " "):

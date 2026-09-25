@@ -1,0 +1,39 @@
+# Suricata IDS + EveBox on an ADS-TEC IRF3000. Run on the IRF
+# (DOCKER_HOST=tcp://<irf>:2375) after enabling a Monitor interface for Docker.
+services:
+  suricata:
+    image: adstec/irf3000-ids-demo-suricata:latest
+    container_name: suricata
+    restart: unless-stopped
+    labels:
+      monitor: "yes"                 # IRF moves the Monitor interface into the container
+    ports:
+      - "2222:22"                    # SSH (user adstec); change if 2222 is in use
+    environment:
+      - IDS_INTERFACE=ETH2           # Monitor interface of the IRF
+      # - HOME_NET=[192.168.0.0/24]  # default: suricata.yaml
+      # - HTTPS_PROXY=http://proxy:3128   # for the rule download, if needed
+      # - RULE_URL=http://mirror/emerging.rules.tar.gz   # local rule mirror
+    volumes:
+      - suricata-logs:/var/log/suricata
+      - suricata-data:/var/lib/suricata
+
+  evebox:
+    image: jasonish/evebox:latest
+    container_name: evebox
+    restart: unless-stopped
+    command: ["evebox", "server", "-D", "/var/lib/evebox", "--sqlite",
+              "--input", "/var/log/suricata/eve.json", "--host", "0.0.0.0"]
+    ports:
+      - "5636:5636"                  # https://<irf>:5636, login in "docker logs evebox"
+    volumes:
+      - evebox-data:/var/lib/evebox
+      - suricata-logs:/var/log/suricata:ro
+
+volumes:
+  suricata-logs:
+    name: suricata-logs
+  suricata-data:
+    name: suricata-data
+  evebox-data:
+    name: evebox-data
