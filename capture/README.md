@@ -131,7 +131,7 @@ In every case the packets themselves come from the IRF's interfaces via the rpca
 ## Quick start
 
 1. Enable the remote capture server on the IRF (see [Configure the IRF](#configure-the-irf)).
-2. Build the image and load it onto the IRF (see [Build](#build)).
+2. Get the image: `docker pull adstec/irf-capture` on the IRF (needs internet access), or pull it on a workstation and load it onto the IRF: `docker pull --platform linux/arm64 adstec/irf-capture && docker save adstec/irf-capture | DOCKER_HOST=tcp://192.168.0.254:2375 docker load`. To build it yourself see [Build](#build).
 3. Start the container:
 
 ```bash
@@ -245,6 +245,7 @@ The build compiles libpcap with remote capture support (Alpine's has none; sourc
 
 ## Links
 
+- [`adstec/irf-capture`](https://hub.docker.com/r/adstec/irf-capture) - prebuilt image on Docker Hub
 - [webshark-ng](https://github.com/hepictel/webshark) - web UI, used unmodified
 - [IRF3000 industrial firewall](https://www.ads-tec-iit.com/en/reliable-remote-access/firewall-router/irf3000/) - product page of ADS-TEC Industrial IT
 

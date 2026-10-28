@@ -8,7 +8,7 @@ Sample containers by **ADS-TEC Industrial IT** for the rootless Docker of the IR
 | [`syslog`](syslog/) | syslog-ng log collector with size cap and read-only SSH log access (lnav, ripgrep) | [`adstec/irf-syslog`](https://hub.docker.com/r/adstec/irf-syslog) |
 | [`modbus-gw`](modbus-gw/) | Modbus RTU (RS-485) to Modbus TCP converter (mbusd) | [`adstec/irf-modbus-gw`](https://hub.docker.com/r/adstec/irf-modbus-gw) |
 | [`smb-proxy`](smb-proxy/) | SMBv1 to SMB3 live proxy for legacy file shares, plus an SMBv1 test server | [`adstec/irf-smb-proxy`](https://hub.docker.com/r/adstec/irf-smb-proxy), [`adstec/irf-smb-xp-sim`](https://hub.docker.com/r/adstec/irf-smb-xp-sim) |
-| [`capture`](capture/) | Packet capture via the IRF's remote capture server: live capture in the browser (webshark), tshark over SSH | build from source |
+| [`capture`](capture/) | Packet capture via the IRF's remote capture server: live capture in the browser (webshark), tshark over SSH | [`adstec/irf-capture`](https://hub.docker.com/r/adstec/irf-capture) |
 | [`suricata`](suricata/) | Suricata IDS demo on the Docker Monitor Port, with EveBox web frontend (IRF3000 only) | [`adstec/irf3000-ids-demo-suricata`](https://hub.docker.com/r/adstec/irf3000-ids-demo-suricata) |
 
 The setup, the IRF configuration in the web interface and the background of each sample are described in the **Docker Application Note** of ADS-TEC Industrial IT.
