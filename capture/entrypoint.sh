@@ -32,6 +32,12 @@ SSH_DIR="${STATE_DIR}/.sshd"
 WEB="${WEB:-yes}"
 WEB_LISTEN="${WEB_LISTEN:-127.0.0.1:8085}"
 WEB_PASSWORD="${WEB_PASSWORD:-}"
+# HTTPS (nginx) in front of the web UI when it is reachable from outside;
+# capture-web then listens on WEB_INTERNAL
+WEB_TLS="${WEB_TLS:-yes}"
+WEB_INTERNAL="${WEB_INTERNAL:-127.0.0.1:8086}"
+TLS_CN="${TLS_CN:-irf-capture}"
+TLS_SAN="${TLS_SAN:-}"
 TZ="${TZ:-UTC}"
 export TZ CAPTURES_PATH CAPTURE_MAX_SIZE CAPTURE_RETENTION_DAYS RPCAP_HOST RPCAP_PORT RECORD_FILE_SIZE
 
@@ -169,13 +175,79 @@ if [[ "${WEB}" == "yes" ]]; then
             fi
             WEB_PASSWORD="$(cat "${SSH_DIR}/web_password")"
         fi
-        web_info="http://<irf>:${WEB_LISTEN##*:}/capture/ (live capture) and /webshark/ (HTTP basic auth, user cap)"
+        web_info="http://<irf>:${WEB_LISTEN##*:}/ (live capture, webshark; HTTP basic auth, user cap)"
     else
         WEB_PASSWORD=""
         web_info="${WEB_LISTEN}, through ssh -L 8085:${WEB_LISTEN} -p ${SSH_PORT} cap@<irf>"
     fi
+
+    app_listen="${WEB_LISTEN}"
+    if [[ -n "${WEB_PASSWORD}" && "${WEB_TLS}" == "yes" ]]; then
+        # nginx terminates TLS on WEB_LISTEN, capture-web moves inside
+        app_listen="${WEB_INTERNAL}"
+        tls_dir="${STATE_DIR}/tls"
+        mkdir -p "${tls_dir}"
+        chmod 700 "${tls_dir}"
+        if [[ ! -s "${tls_dir}/server.crt" || ! -s "${tls_dir}/server.key" ]]; then
+            san="DNS:${TLS_CN},DNS:localhost,IP:127.0.0.1${TLS_SAN:+,${TLS_SAN}}"
+            openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -days 3650 \
+                -subj "/CN=${TLS_CN}" -addext "subjectAltName=${san}" \
+                -keyout "${tls_dir}/server.key" -out "${tls_dir}/server.crt" 2>/dev/null
+            chmod 600 "${tls_dir}/server.key"
+            echo "=== generated a self-signed TLS certificate (${san}) in ${tls_dir} ==="
+        fi
+        cat > /etc/nginx/nginx.conf <<NGINX
+worker_processes 1;
+pid /run/nginx.pid;
+error_log /dev/stderr warn;
+events { worker_connections 256; }
+http {
+    access_log off;
+    server_tokens off;
+    client_max_body_size 2g;
+    upstream capture_web { server ${app_listen}; }
+    server {
+        listen ${WEB_LISTEN} ssl;
+        http2 on;
+        ssl_certificate     ${tls_dir}/server.crt;
+        ssl_certificate_key ${tls_dir}/server.key;
+        ssl_protocols TLSv1.2 TLSv1.3;
+        ssl_prefer_server_ciphers off;
+        ssl_session_cache shared:tls:1m;
+        # plain HTTP on the HTTPS port: redirect
+        error_page 497 =301 https://\$host:\$server_port\$request_uri;
+
+        # no HSTS: with a self-signed certificate it would lock users out
+        # of the browser's certificate exception
+        add_header X-Frame-Options SAMEORIGIN always;
+
+        location / {
+            proxy_pass http://capture_web;
+            proxy_http_version 1.1;
+            proxy_set_header Host \$http_host;
+            proxy_set_header X-Forwarded-Proto https;
+            proxy_set_header X-Forwarded-For \$remote_addr;
+            proxy_set_header Connection "";
+            # live follow (server-sent events) and growing captures: no
+            # buffering, long reads
+            proxy_buffering off;
+            proxy_request_buffering off;
+            proxy_read_timeout 1h;
+            proxy_send_timeout 1h;
+        }
+    }
+}
+NGINX
+        nginx -t -q
+        # "io_setup() failed (38: Function not implemented)" at start: no
+        # Linux AIO in rootless Docker on the IRF, nginx works without it
+        nginx -g 'daemon off;' &
+        web_info="https://<irf>:${WEB_LISTEN##*:}/ (live capture, webshark; HTTP basic auth, user cap; TLS cert SHA256 $(openssl x509 -in "${tls_dir}/server.crt" -noout -fingerprint -sha256 | cut -d= -f2))"
+    fi
+
     # busybox su keeps the environment: the password is not on a command line
-    WEB_LISTEN="${WEB_LISTEN}" WEB_PASSWORD="${WEB_PASSWORD}" SSH_PORT="${SSH_PORT}" \
+    public_port="${WEB_LISTEN##*:}"
+    WEB_LISTEN="${app_listen}" WEB_PUBLIC_PORT="${public_port}" WEB_PASSWORD="${WEB_PASSWORD}" SSH_PORT="${SSH_PORT}" \
         su -s /bin/sh cap -c 'umask 0027; exec /usr/bin/capture-web' &
 fi
 unset SSH_PASSWORD WEB_PASSWORD

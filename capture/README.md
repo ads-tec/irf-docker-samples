@@ -27,12 +27,12 @@ export DOCKER_HOST=tcp://192.168.0.254:2375
 docker compose up -d          # or:
 docker run -d --name capture --hostname capture --restart unless-stopped \
   --network host --tmpfs /captures:size=200m -v capture-state:/state \
-  -e WEB_LISTEN=0.0.0.0:8085 -e TZ=Europe/Berlin \
+  -e WEB_LISTEN=0.0.0.0:8085 -e TLS_SAN=IP:<irf-address> -e TZ=Europe/Berlin \
   adstec/irf-capture
-docker logs capture           # generated passwords, interfaces of the IRF
+docker logs capture           # generated passwords, TLS fingerprint, interfaces of the IRF
 ```
 
-4. Open `http://<irf-address>:8085/` (user `cap`, password from the log), or log in with `ssh -p 2223 cap@<irf-address>`.
+4. Open `https://<irf-address>:8085/` (user `cap`, password from the log; check the certificate fingerprint from the log, the certificate is self-signed), or log in with `ssh -p 2223 cap@<irf-address>`.
 
 No `--privileged`, no additional capabilities.
 
@@ -43,7 +43,9 @@ No `--privileged`, no additional capabilities.
 - `/webshark/`: webshark with all capture files.
 - "hide this viewer's own traffic" (default on) excludes the SSH and web port; the live view itself runs over the LAN interface.
 
-Without `WEB_LISTEN` the web UI listens on `127.0.0.1:8085` only and is reached through SSH: `ssh -N -L 8085:127.0.0.1:8085 -p 2223 cap@<irf-address>`, then `http://localhost:8085/`. With `WEB_LISTEN=0.0.0.0:8085` it is reachable directly and protected by HTTP basic auth; plain HTTP, so the password crosses the network unencrypted. RTP audio playback in webshark needs a secure context (the SSH tunnel to `localhost`, or HTTPS through a reverse proxy).
+Without `WEB_LISTEN` the web UI listens on `127.0.0.1:8085` only and is reached through SSH: `ssh -N -L 8085:127.0.0.1:8085 -p 2223 cap@<irf-address>`, then `http://localhost:8085/`.
+
+With `WEB_LISTEN=0.0.0.0:8085` it is reachable directly: nginx in the container terminates HTTPS on that port (`http://` is redirected) and the UI is protected by HTTP basic auth. The certificate is self-signed and generated once in `/state/tls` (SAN from `TLS_CN` and `TLS_SAN`, fingerprint in `docker logs`); to use your own, put `server.crt` and `server.key` there and restart the container. Over HTTPS (or the SSH tunnel) the page is a secure, cross-origin isolated context, so RTP audio playback in webshark works too. `WEB_TLS=no` serves plain HTTP instead.
 
 ### SSH
 ```bash
@@ -75,9 +77,11 @@ sftp -P 2223 cap@<irf-address>             # download from /captures
 | `WEB` | `yes` | Web UI |
 | `WEB_LISTEN` | `127.0.0.1:8085` | `0.0.0.0:8085`: reachable directly, HTTP basic auth (user `cap`) |
 | `WEB_PASSWORD` | SSH password, else random (kept in `/state`) | Basic auth password |
+| `WEB_TLS` | `yes` | HTTPS through nginx when `WEB_LISTEN` is reachable from outside |
+| `TLS_CN` / `TLS_SAN` | `irf-capture` / empty | Self-signed certificate, e.g. `TLS_SAN=IP:192.168.0.254,DNS:irf.example` |
 | `TZ` | `UTC` | Time zone for file names |
 
-Volumes: `/captures` (tmpfs or volume) and `/state` (SSH host keys and generated passwords; keep it persistent).
+Volumes: `/captures` (tmpfs or volume) and `/state` (SSH host keys, generated passwords, TLS certificate; keep it persistent).
 
 ## Storage and disk space
 
@@ -123,7 +127,7 @@ The build compiles libpcap with remote capture support (Alpine's has none; sourc
 |---|---|
 | `Dockerfile`, `docker-compose.yml`, `entrypoint.sh`, `motd` | image and container |
 | `src/rpcapcat.c` | remote capture client: interface list, capture with the filter on the IRF, pcap to stdout |
-| `web/` | `capture-web`: webshark API, live capture page and API, file list, disk space guard |
+| `web/` | `capture-web`: webshark API, live capture page and API, file list, disk space guard (behind nginx for HTTPS) |
 | `bin/capture`, `bin/record`, `bin/capture-retention` | SSH tools and retention |
 | `setup_rpcap.py` | IRF configuration |
 

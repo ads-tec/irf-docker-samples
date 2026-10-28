@@ -80,7 +80,9 @@ RUN sed -i 's|^https://|http://|' /etc/apk/repositories && \
         coreutils \
         findutils \
         less \
+        nginx \
         openssh-server \
+        openssl \
         tini \
         tshark \
         tzdata && \

@@ -108,7 +108,10 @@ var (
 // capture viewer itself and would feed back into the capture
 func ownPorts() []string {
 	ports := []string{}
-	if _, p, ok := strings.Cut(listen, ":"); ok && p != "" {
+	// behind nginx, the port the viewer uses is not the one we listen on
+	if p := os.Getenv("WEB_PUBLIC_PORT"); p != "" {
+		ports = append(ports, p)
+	} else if _, p, ok := strings.Cut(listen, ":"); ok && p != "" {
 		ports = append(ports, p)
 	}
 	if p := os.Getenv("SSH_PORT"); p != "" {

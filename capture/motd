@@ -15,6 +15,6 @@
   Local Wireshark, live:   ssh -p 2223 cap@<irf> rpcapcat -f "'not port 2223'" br0 | wireshark -k -i -
   Web UI (webshark):       ssh -N -L 8085:127.0.0.1:8085 -p 2223 cap@<irf>
                            then http://localhost:8085/  (live capture, webshark)
-                           (or http://<irf>:8085/webshark/ with WEB_LISTEN=0.0.0.0:8085)
+                           (or https://<irf>:8085/ with WEB_LISTEN=0.0.0.0:8085)
   Download:                sftp -P 2223 cap@<irf>   (/captures)
 
