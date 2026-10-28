@@ -1,0 +1,20 @@
+
+  IRF packet capture - tshark over the IRF's remote capture (rpcapd)
+
+  rpcapcat -l                                interfaces of the IRF
+  capture br0 'port 502'                     live packet list (capture filter)
+  capture br0 'port 502' -- -V               full decode, any tshark options
+  capture eth1 -- -Y 'http.request'          display filter
+
+  record start br0 'not port 2223'           record to /captures (background)
+  record list | record stop <id>|all
+
+  Your own SSH session runs over the LAN interface: exclude it with
+  'not port 2223' when capturing there.
+
+  Local Wireshark, live:   ssh -p 2223 cap@<irf> rpcapcat -f "'not port 2223'" br0 | wireshark -k -i -
+  Web UI (webshark):       ssh -N -L 8085:127.0.0.1:8085 -p 2223 cap@<irf>
+                           then http://localhost:8085/  (live capture, webshark)
+                           (or http://<irf>:8085/webshark/ with WEB_LISTEN=0.0.0.0:8085)
+  Download:                sftp -P 2223 cap@<irf>   (/captures)
+

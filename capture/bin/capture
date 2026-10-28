@@ -1,0 +1,23 @@
+#!/bin/bash
+# Live capture from the IRF with tshark.
+#   capture <iface> [capture filter]            packet list
+#   capture <iface> [capture filter] -- <tshark options>
+# Examples:
+#   capture br0 'port 502'
+#   capture br0 'port 502' -- -V                full decode
+#   capture eth1 -- -Y 'modbus.func_code == 6'  display filter
+set -euo pipefail
+set -a; . /etc/capture.env; set +a
+
+if [[ $# -lt 1 || "$1" == -h || "$1" == --help ]]; then
+    sed -n '2,8s/^# \{0,1\}//p' "$0"
+    echo "Interfaces: $(rpcapcat -l | awk '{print $1}' | tr '\n' ' ')"
+    exit 2
+fi
+iface="$1"; shift
+filter=()
+while [[ $# -gt 0 && "$1" != "--" ]]; do filter+=("$1"); shift; done
+[[ "${1:-}" == "--" ]] && shift
+
+# rpcapcat applies the filter on the IRF, tshark reads the pcap stream
+rpcapcat -f "${filter[*]:-}" "${iface}" | tshark -i - -l "$@"

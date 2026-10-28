@@ -1,0 +1,355 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>IRF Live Capture</title>
+<style>
+  :root {
+    --bg: #f5f7fb; --panel: #fff; --text: #1d2433; --muted: #5d6779; --line: #dfe3ec;
+    --accent: #3f51b5; --accent-text: #fff; --ok: #1f7a3a; --err: #b3261e; --code: #eef1f8;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #14171f; --panel: #1c212b; --text: #e3e7ef; --muted: #9aa3b5; --line: #2e3442;
+            --accent: #7986cb; --accent-text: #10131a; --ok: #6cc589; --err: #f28b82; --code: #262c38; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  header { background: #3f51b5; color: #fff; padding: 12px 16px; display: flex; gap: 16px; align-items: baseline; flex-wrap: wrap; }
+  header h1 { font-size: 18px; margin: 0; font-weight: 600; }
+  header a { color: #fff; opacity: .9; }
+  main { max-width: 980px; margin: 0 auto; padding: 16px; display: grid; gap: 16px; }
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 16px; }
+  h2 { font-size: 15px; margin: 0 0 12px; }
+  label { display: block; font-weight: 600; margin: 0 0 4px; }
+  .row { display: grid; grid-template-columns: 220px 1fr; gap: 12px; align-items: start; margin-bottom: 12px; }
+  @media (max-width: 640px) { .row { grid-template-columns: 1fr; } }
+  select, input[type=text], input[type=number] {
+    width: 100%; padding: 7px 9px; border: 1px solid var(--line); border-radius: 6px;
+    background: var(--panel); color: var(--text); font: inherit; }
+  input#filter { font-family: ui-monospace, Menlo, Consolas, monospace; }
+  .hint { color: var(--muted); font-size: 12.5px; margin-top: 4px; }
+  .presets { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+  .presets button { font-size: 12px; padding: 2px 8px; }
+  .limits { display: flex; gap: 12px; flex-wrap: wrap; }
+  .limits > div { flex: 1 1 140px; }
+  button { font: inherit; padding: 7px 14px; border-radius: 6px; border: 1px solid var(--line);
+           background: var(--panel); color: var(--text); cursor: pointer; }
+  button.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); font-weight: 600; }
+  button:disabled { opacity: .55; cursor: default; }
+  .msg { margin-top: 10px; min-height: 1.4em; }
+  .msg.err { color: var(--err); }
+  .msg.ok { color: var(--ok); }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; font-size: 12.5px; }
+  td code { background: var(--code); padding: 1px 4px; border-radius: 4px; word-break: break-all; }
+  .state-run { color: var(--ok); font-weight: 600; }
+  .empty { color: var(--muted); }
+  .actions { white-space: nowrap; display: flex; gap: 6px; }
+  .tablewrap { overflow-x: auto; }
+  .diskbar { height: 10px; border-radius: 5px; background: var(--code); overflow: hidden; position: relative; margin: 6px 0 4px; }
+  .diskbar .used { height: 100%; background: var(--accent); }
+  .diskbar .reserve { position: absolute; top: 0; bottom: 0; right: 0; background: repeating-linear-gradient(45deg, transparent 0 4px, rgba(179,38,30,.35) 4px 8px); }
+  .warn { color: var(--err); font-weight: 600; margin: 6px 0; }
+  .toolbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 10px 0; }
+  button.danger { color: var(--err); }
+  td.num, th.num { text-align: right; white-space: nowrap; }
+  .inuse { color: var(--ok); font-size: 12.5px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>IRF Live Capture</h1>
+  <a href="/webshark/">webshark: all captures</a>
+</header>
+<main>
+  <section>
+    <h2>Start a capture</h2>
+    <div class="row">
+      <div><label for="iface">Interface</label><div class="hint">from the IRF's remote capture server</div></div>
+      <div><select id="iface"><option>loading…</option></select></div>
+    </div>
+    <div class="row">
+      <div><label for="filter">Capture filter</label><div class="hint">BPF, runs on the IRF</div></div>
+      <div>
+        <input id="filter" type="text" placeholder="e.g. port 502 or host 192.168.0.10" autocomplete="off" spellcheck="false">
+        <div class="presets">
+          <button type="button" data-f="">all</button>
+          <button type="button" data-f="tcp port 502">Modbus/TCP</button>
+          <button type="button" data-f="tcp port 4840">OPC UA</button>
+          <button type="button" data-f="tcp port 102">S7</button>
+          <button type="button" data-f="udp port 34964 or ether proto 0x8892">PROFINET</button>
+          <button type="button" data-f="port 53">DNS</button>
+          <button type="button" data-f="arp or icmp">ARP / ICMP</button>
+        </div>
+        <label class="hint" style="font-weight:normal;margin-top:8px">
+          <input id="hideown" type="checkbox" checked> hide this viewer's own traffic (<span id="ownports">SSH and web port</span>)
+        </label>
+      </div>
+    </div>
+    <div class="row">
+      <div><label>Stop after</label><div class="hint">whichever comes first</div></div>
+      <div class="limits">
+        <div><input id="maxmb" type="number" min="1" max="1000" value="100"><div class="hint">MB (max. 1000)</div></div>
+        <div><input id="maxmin" type="number" min="1" max="1440" value="60"><div class="hint">minutes (max. 1440)</div></div>
+      </div>
+    </div>
+    <button id="start" class="primary" type="button">Start and open live view</button>
+    <div id="msg" class="msg" role="status"></div>
+  </section>
+
+  <section>
+    <h2>Live captures</h2>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>Interface</th><th>Filter</th><th>Started</th><th>Size</th><th>State</th><th></th></tr></thead>
+        <tbody id="list"><tr><td colspan="6" class="empty">none</td></tr></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Files</h2>
+    <div id="disk" class="hint">disk: …</div>
+    <div class="diskbar" aria-hidden="true"><div class="used" id="diskused" style="width:0"></div><div class="reserve" id="diskreserve" style="width:0"></div></div>
+    <div id="diskwarn" class="warn" hidden></div>
+    <div class="toolbar">
+      <button id="delsel" class="danger" type="button" disabled>Delete selected</button>
+      <span id="filemsg" class="hint" role="status"></span>
+    </div>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th><input id="selall" type="checkbox" aria-label="select all"></th><th>File</th><th class="num">Size</th><th>Modified</th><th></th></tr></thead>
+        <tbody id="files"><tr><td colspan="5" class="empty">loading…</td></tr></tbody>
+      </table>
+    </div>
+    <div class="hint">Files in use (a running capture, or written within the last minute) cannot be deleted. Old files are also removed automatically (age, size cap, disk reserve).</div>
+  </section>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+const msg = (text, cls) => { const m = $('msg'); m.textContent = text || ''; m.className = 'msg ' + (cls || ''); };
+
+async function api(path, body) {
+  const opts = body === undefined ? {} :
+    { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) };
+  const res = await fetch('/capture/api/' + path, opts);
+  let data = {};
+  try { data = await res.json(); } catch (_) {}
+  if (!res.ok || data.err) throw new Error(data.errstr || ('HTTP ' + res.status));
+  return data;
+}
+
+const viewer = (c) => '/webshark/?capture=' + encodeURIComponent(c.capture);
+
+function fmtSize(n) {
+  if (n < 1024) return n + ' B';
+  if (n < 1048576) return (n / 1024).toFixed(1) + ' KiB';
+  return (n / 1048576).toFixed(1) + ' MiB';
+}
+
+async function loadInterfaces() {
+  const sel = $('iface');
+  try {
+    const data = await api('interfaces');
+    sel.textContent = '';
+    const list = data.interfaces.slice().sort((a, b) => (b.up - a.up) || a.name.localeCompare(b.name));
+    for (const i of list) {
+      const o = document.createElement('option');
+      o.value = i.name;
+      o.textContent = i.name + (i.up ? '' : '  (down)');
+      sel.appendChild(o);
+    }
+    const preferred = ['br0', 'ETH1', 'lxcbr0'].find(n => list.some(i => i.name === n));
+    if (preferred) sel.value = preferred;
+    if (data.own_ports && data.own_ports.length) $('ownports').textContent = 'ports ' + data.own_ports.join(', ');
+  } catch (e) {
+    sel.innerHTML = '<option value="">not available</option>';
+    msg('Remote capture server not reachable: ' + e.message, 'err');
+  }
+}
+
+async function loadList() {
+  const body = $('list');
+  let data;
+  try { data = await api('list'); } catch (_) { return; }
+  body.textContent = '';
+  if (!data.captures.length) {
+    body.innerHTML = '<tr><td colspan="6" class="empty">none</td></tr>';
+    return;
+  }
+  for (const c of data.captures) {
+    const tr = document.createElement('tr');
+    const cells = [
+      c.iface,
+      null,
+      new Date(c.started).toLocaleString(),
+      fmtSize(c.size),
+      null,
+      null,
+    ];
+    cells.forEach((v, i) => {
+      const td = document.createElement('td');
+      if (i === 1) {
+        const code = document.createElement('code');
+        code.textContent = c.filter || 'all';
+        td.appendChild(code);
+      } else if (i === 4) {
+        td.textContent = c.running ? 'running' : ('ended' + (c.exit ? ': ' + c.exit : ''));
+        if (c.running) td.className = 'state-run';
+      } else if (i === 5) {
+        const box = document.createElement('div');
+        box.className = 'actions';
+        const open = document.createElement('a');
+        open.href = viewer(c);
+        open.textContent = c.running ? 'live view' : 'open';
+        box.appendChild(open);
+        if (c.running) {
+          const stop = document.createElement('button');
+          stop.textContent = 'Stop';
+          stop.onclick = async () => {
+            stop.disabled = true;
+            try { await api('stop', { id: c.id }); } catch (e) { msg(e.message, 'err'); }
+            loadList();
+            loadFiles();
+          };
+          box.appendChild(stop);
+        }
+        td.appendChild(box);
+      } else {
+        td.textContent = v;
+      }
+      tr.appendChild(td);
+    });
+    body.appendChild(tr);
+  }
+}
+
+document.querySelectorAll('.presets button').forEach(b => b.onclick = () => { $('filter').value = b.dataset.f; $('filter').focus(); });
+
+$('start').onclick = async () => {
+  const btn = $('start');
+  btn.disabled = true;
+  msg('starting…');
+  try {
+    const c = await api('start', {
+      iface: $('iface').value,
+      filter: $('filter').value,
+      hide_own: $('hideown').checked,
+      max_mb: Number($('maxmb').value),
+      max_minutes: Number($('maxmin').value),
+    });
+    msg('Capture running, opening live view…', 'ok');
+    location.href = viewer(c);
+  } catch (e) {
+    msg(e.message, 'err');
+    btn.disabled = false;
+  }
+};
+$('filter').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('start').click(); });
+
+const selected = new Set();
+
+function updateSelButton() {
+  $('delsel').disabled = selected.size === 0;
+  $('delsel').textContent = selected.size ? 'Delete selected (' + selected.size + ')' : 'Delete selected';
+}
+
+async function deleteFiles(names) {
+  if (!names.length) return;
+  const what = names.length === 1 ? names[0] : names.length + ' files';
+  if (!confirm('Delete ' + what + '?')) return;
+  try {
+    const res = await api('delete', { names });
+    res.deleted.forEach(n => selected.delete(n));
+    const fails = res.failed.map(f => f.name + ': ' + f.err);
+    $('filemsg').textContent = res.deleted.length + ' deleted' + (fails.length ? '; ' + fails.join('; ') : '');
+    $('filemsg').className = 'hint' + (fails.length ? ' warn' : '');
+  } catch (e) {
+    $('filemsg').textContent = e.message;
+    $('filemsg').className = 'hint warn';
+  }
+  updateSelButton();
+  loadFiles();
+}
+
+async function loadFiles() {
+  let data;
+  try { data = await api('files'); } catch (_) { return; }
+  const d = data.disk;
+  if (d && d.total) {
+    const used = d.total - d.free;
+    $('disk').textContent = (d.tmpfs ? 'RAM disk (lost on restart): ' : 'Docker partition: ') + fmtSize(d.free) + ' free of ' + fmtSize(d.total) +
+      (d.min_free ? ', ' + fmtSize(d.min_free) + ' reserved (captures stop below it)' : '') +
+      ' · captures: ' + fmtSize(data.total) + (data.max_size ? ' of max. ' + fmtSize(data.max_size) : '');
+    $('diskused').style.width = (100 * used / d.total).toFixed(1) + '%';
+    $('diskreserve').style.width = (100 * (d.min_free || 0) / d.total).toFixed(1) + '%';
+    const low = d.min_free && d.free < d.min_free;
+    $('diskwarn').hidden = !(low || data.guard_tripped);
+    $('diskwarn').textContent = low ? 'Disk space below the reserve: all captures were stopped. Delete files.'
+      : 'Captures were stopped in the last 10 minutes because the disk space ran low.';
+  }
+  const names = new Set(data.files.map(f => f.name));
+  [...selected].forEach(n => { if (!names.has(n)) selected.delete(n); });
+  const body = $('files');
+  body.textContent = '';
+  if (!data.files.length) {
+    body.innerHTML = '<tr><td colspan="5" class="empty">no files</td></tr>';
+  }
+  for (const f of data.files) {
+    const tr = document.createElement('tr');
+    const tdSel = document.createElement('td');
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.disabled = f.active;
+    cb.checked = selected.has(f.name);
+    cb.setAttribute('aria-label', 'select ' + f.name);
+    cb.onchange = () => { cb.checked ? selected.add(f.name) : selected.delete(f.name); updateSelButton(); };
+    tdSel.appendChild(cb);
+    const tdName = document.createElement('td');
+    const a = document.createElement('a');
+    a.href = '/webshark/?capture=' + encodeURIComponent(f.name);
+    a.textContent = f.name;
+    tdName.appendChild(a);
+    if (f.active) {
+      const s = document.createElement('span');
+      s.className = 'inuse';
+      s.textContent = '  in use';
+      tdName.appendChild(s);
+    }
+    const tdSize = document.createElement('td');
+    tdSize.className = 'num';
+    tdSize.textContent = fmtSize(f.size);
+    const tdMod = document.createElement('td');
+    tdMod.textContent = new Date(f.modified).toLocaleString();
+    const tdAct = document.createElement('td');
+    const del = document.createElement('button');
+    del.className = 'danger';
+    del.textContent = 'Delete';
+    del.disabled = f.active;
+    del.onclick = () => deleteFiles([f.name]);
+    tdAct.appendChild(del);
+    [tdSel, tdName, tdSize, tdMod, tdAct].forEach(td => tr.appendChild(td));
+    body.appendChild(tr);
+  }
+  const selectable = data.files.filter(f => !f.active).map(f => f.name);
+  $('selall').checked = selectable.length > 0 && selectable.every(n => selected.has(n));
+  $('selall').onchange = () => {
+    selectable.forEach(n => $('selall').checked ? selected.add(n) : selected.delete(n));
+    updateSelButton();
+    loadFiles();
+  };
+  updateSelButton();
+}
+
+$('delsel').onclick = () => deleteFiles([...selected]);
+
+loadInterfaces();
+loadList();
+loadFiles();
+setInterval(() => { loadList(); loadFiles(); }, 5000);
+</script>
+</body>
+</html>

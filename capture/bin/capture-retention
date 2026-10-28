@@ -1,0 +1,63 @@
+#!/bin/bash
+# Enforce retention and the total size cap of the capture volume.
+#   1. delete captures older than CAPTURE_RETENTION_DAYS
+#   2. delete the oldest captures until the total is below CAPTURE_MAX_SIZE
+#   3. delete the oldest captures until the Docker partition has
+#      CAPTURE_MIN_FREE_BYTES free again (capture-web stops the captures
+#      when it drops below)
+# Files written in the last minute are kept: they are open recordings, which
+# rotate at RECORD_FILE_SIZE. Hidden entries (.sshd, uploads in progress)
+# are skipped.
+set -euo pipefail
+
+CAPTURES_PATH="${CAPTURES_PATH:-/captures}"
+CAPTURE_MAX_SIZE="${CAPTURE_MAX_SIZE:-1G}"
+CAPTURE_RETENTION_DAYS="${CAPTURE_RETENTION_DAYS:-14}"
+
+max_bytes="$(numfmt --from=iec "${CAPTURE_MAX_SIZE}")"
+min_free="${CAPTURE_MIN_FREE_BYTES:-0}"
+
+# oldest first, files written in the last minute excluded
+oldest() {
+    find "${CAPTURES_PATH}" -maxdepth 1 -type f ! -name '.*' -mmin +1 -printf '%T@ %p\n' | sort -n | cut -d' ' -f2-
+}
+
+# 1. retention by age
+find "${CAPTURES_PATH}" -maxdepth 1 -type f ! -name '.*' -mtime +"${CAPTURE_RETENTION_DAYS}" -print -delete |
+    sed 's/^/retention: removed (age) /'
+
+# 2. size cap, oldest first
+total="$(find "${CAPTURES_PATH}" -maxdepth 1 -type f ! -name '.*' -printf '%s\n' | awk '{s+=$1} END {print s+0}')"
+if (( total > max_bytes )); then
+    while IFS= read -r f; do
+        (( total > max_bytes )) || break
+        [[ -n "${f}" && -f "${f}" ]] || continue
+        size="$(stat -c %s "${f}")"
+        rm -f "${f}"
+        echo "retention: removed (size cap) ${f}"
+        total=$(( total - size ))
+    done < <(oldest)
+fi
+
+# 3. free space on the partition. btrfs reports freed space only after its
+#    next commit, so count the deleted bytes instead of re-reading df, and
+#    skip this step for 90 s after it deleted something.
+stamp=/run/capture-retention.freed
+if (( min_free > 0 )) && ! [[ -n "$(find "${stamp}" -newermt '-90 seconds' 2>/dev/null)" ]]; then
+    free=$(( $(stat -f -c '%a * %S' "${CAPTURES_PATH}") ))
+    if (( free < min_free )); then
+        need=$(( min_free - free ))
+        while IFS= read -r f; do
+            (( need > 0 )) || break
+            [[ -n "${f}" && -f "${f}" ]] || continue
+            size="$(stat -c %s "${f}")"
+            rm -f "${f}"
+            echo "retention: removed (disk space) ${f}"
+            need=$(( need - size ))
+            touch "${stamp}"
+        done < <(oldest)
+        if (( need > 0 )); then
+            echo "retention: disk space below the reserve, no more captures to delete"
+        fi
+    fi
+fi

@@ -8,6 +8,7 @@ Sample containers by **ADS-TEC Industrial IT** for the rootless Docker of the IR
 | [`syslog`](syslog/) | syslog-ng log collector with size cap and read-only SSH log access (lnav, ripgrep) | [`adstec/irf-syslog`](https://hub.docker.com/r/adstec/irf-syslog) |
 | [`modbus-gw`](modbus-gw/) | Modbus RTU (RS-485) to Modbus TCP converter (mbusd) | [`adstec/irf-modbus-gw`](https://hub.docker.com/r/adstec/irf-modbus-gw) |
 | [`smb-proxy`](smb-proxy/) | SMBv1 to SMB3 live proxy for legacy file shares, plus an SMBv1 test server | [`adstec/irf-smb-proxy`](https://hub.docker.com/r/adstec/irf-smb-proxy), [`adstec/irf-smb-xp-sim`](https://hub.docker.com/r/adstec/irf-smb-xp-sim) |
+| [`capture`](capture/) | Packet capture via the IRF's remote capture server: live capture in the browser (webshark), tshark over SSH | build from source |
 | [`suricata`](suricata/) | Suricata IDS demo on the Docker Monitor Port, with EveBox web frontend (IRF3000 only) | [`adstec/irf3000-ids-demo-suricata`](https://hub.docker.com/r/adstec/irf3000-ids-demo-suricata) |
 
 The setup, the IRF configuration in the web interface and the background of each sample are described in the **Docker Application Note** of ADS-TEC Industrial IT.
@@ -26,7 +27,7 @@ The setup, the IRF configuration in the web interface and the background of each
 
 ## IRF setup scripts
 
-The samples with port forwarding have a `setup_forwarding.py` that enables Docker, pins the Docker DHCP pool, creates the port-forwarding rules of the sample and saves the settings through the IRF JSON-RPC API. Requirements:
+The samples with port forwarding have a `setup_forwarding.py` (the capture sample: `setup_rpcap.py`) that enables Docker, pins the Docker DHCP pool, creates the port-forwarding rules of the sample and saves the settings through the IRF JSON-RPC API. Requirements:
 
 - `jsonrpcdevice.py` from [ads-tec/Python-AdstecJSONRPCDevice](https://github.com/ads-tec/Python-AdstecJSONRPCDevice), next to the script or on `PYTHONPATH`
 - `pip install requests`

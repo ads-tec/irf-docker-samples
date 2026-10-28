@@ -1,0 +1,75 @@
+#!/bin/bash
+# Recordings into /captures, running in the background (survive the SSH
+# session, not a container restart). Files rotate at RECORD_FILE_SIZE; the
+# size cap of the volume removes the oldest ones.
+#   record start <iface> [capture filter]
+#   record stop <id>|all
+#   record list
+set -euo pipefail
+set -a; . /etc/capture.env; set +a
+
+RUN_DIR=/run/capture
+
+usage() { sed -n '2,7s/^# \{0,1\}//p' "$0"; exit 2; }
+
+alive() { [[ -f "$1" ]] && kill -0 "$(cat "$1")" 2>/dev/null; }
+
+case "${1:-}" in
+start)
+    [[ $# -ge 2 ]] || usage
+    iface="$2"; shift 2
+    filter="$*"
+    id="${iface//[^A-Za-z0-9_.-]/_}_$(date +%Y%m%d-%H%M%S)"
+    kb=$(( $(numfmt --from=iec "${RECORD_FILE_SIZE}") / 1000 ))
+    file="${CAPTURES_PATH}/${id}.pcapng"
+    # own session: keeps running after logout, stop kills the whole group
+    setsid bash -c '
+        umask 0027
+        echo $$ > "$1"
+        rpcapcat -f "$2" "$3" 2>"$4.log" | tshark -i - -q -w "$5" -b filesize:"$6" 2>>"$4.log"
+    ' record "${RUN_DIR}/${id}.pid" "${filter}" "${iface}" "${RUN_DIR}/${id}" "${file}" "${kb}" </dev/null >/dev/null 2>&1 &
+    printf '%s\n' "${iface}" "${filter}" > "${RUN_DIR}/${id}.info"
+    sleep 2
+    if ! alive "${RUN_DIR}/${id}.pid"; then
+        echo "record ${id} failed:" >&2
+        cat "${RUN_DIR}/${id}.log" >&2 2>/dev/null || true
+        rm -f "${RUN_DIR}/${id}".*
+        exit 1
+    fi
+    echo "recording ${id}: ${iface}${filter:+ ($filter)} -> ${CAPTURES_PATH}/${id}_*.pcapng"
+    ;;
+stop)
+    [[ $# -eq 2 ]] || usage
+    shopt -s nullglob
+    for p in "${RUN_DIR}"/*.pid; do
+        id="$(basename "${p}" .pid)"
+        [[ "$2" == all || "$2" == "${id}" ]] || continue
+        if alive "${p}"; then
+            # Stop rpcapcat only: tshark sees the end of the pipe and closes
+            # the pcapng file cleanly. The whole group if that does not work.
+            sid="$(cat "${p}")"
+            pkill -TERM -s "${sid}" -x rpcapcat 2>/dev/null || true
+            for _ in 1 2 3 4 5 6 7 8 9 10; do alive "${p}" || break; sleep 0.5; done
+            alive "${p}" && kill -TERM -- "-${sid}" 2>/dev/null || true
+        fi
+        rm -f "${RUN_DIR}/${id}".*
+        echo "stopped ${id}"
+    done
+    ;;
+list)
+    shopt -s nullglob
+    for p in "${RUN_DIR}"/*.pid; do
+        id="$(basename "${p}" .pid)"
+        if alive "${p}"; then
+            mapfile -t info < "${RUN_DIR}/${id}.info"
+            printf '%-32s %-10s %s\n' "${id}" "${info[0]}" "${info[1]:-}"
+        else
+            echo "${id} ended: $(tail -n1 "${RUN_DIR}/${id}.log" 2>/dev/null)"
+            rm -f "${RUN_DIR}/${id}".*
+        fi
+    done
+    ;;
+*)
+    usage
+    ;;
+esac

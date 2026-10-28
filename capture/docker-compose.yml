@@ -1,0 +1,36 @@
+# Run on the IRF (DOCKER_HOST=tcp://192.168.0.254:2375). The image must be
+# loaded/pulled beforehand if the IRF has no internet access. Enable the IRF's
+# remote capture server first: setup_rpcap.py
+services:
+  capture:
+    image: adstec/irf-capture:latest
+    container_name: capture
+    hostname: capture
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      - CAPTURE_MAX_SIZE=1G        # total size cap of the captures
+      - CAPTURE_MIN_FREE=15%       # kept free on the captures filesystem; captures stop below
+      - CAPTURE_RETENTION_DAYS=14
+      - RECORD_FILE_SIZE=50M       # recordings rotate at this size
+      - TZ=UTC
+      # - RPCAP_HOST=10.0.3.1      # unset: default gateway = IRF Docker interface
+      # - RECORD_IFACE=br0         # record from the start of the container
+      # - RECORD_FILTER=port 502
+      # - SSH_PASSWORD=...         # unset: random, printed once, kept in /state/.sshd/password
+      # - SSH_AUTHORIZED_KEYS=ssh-ed25519 AAAA... user@host
+      # - WEB=no                   # webshark UI, 127.0.0.1:8085 via ssh -L
+      # - WEB_LISTEN=0.0.0.0:8085  # UI directly (setup_rpcap.py --web), HTTP basic auth
+      # - WEB_PASSWORD=...         # unset: SSH password, else random (/state/.sshd/web_password)
+    # Captures in RAM: hard size limit, no flash wear, nothing can fill the
+    # Docker partition; lost when the container or the IRF restarts.
+    # For persistent captures replace this with a volume:
+    #   volumes: [capture-data:/captures]  (+ capture-data under volumes:)
+    tmpfs:
+      - /captures:size=200m
+    volumes:
+      - capture-state:/state     # SSH host keys, generated passwords
+
+volumes:
+  capture-state:
+    name: capture-state
