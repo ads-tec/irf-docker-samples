@@ -16,6 +16,15 @@ br0/ETH1/... -> rpcapd :2002/:2003  <-----  rpcapcat -> tshark -> /captures/*.pc
 
 **The remote capture server gives access to all traffic of the IRF.** `setup_rpcap.py` makes it reachable from the Docker interface only and for the container's address only. Enable it only while it is needed (`setup_rpcap.py --disable`).
 
+## Screenshots
+
+| | |
+|---|---|
+| [![Start a capture](screenshots/01-capture-start.png)](screenshots/01-capture-start.png) | [![Live view in webshark](screenshots/02-live-view.png)](screenshots/02-live-view.png) |
+| **Start a capture:** interface of the IRF, capture filter (presets), limits; below the files and the RAM disk usage | **Live view:** webshark follows the growing capture (*live follow*) |
+| [![Packet detail](screenshots/03-packet-detail.png)](screenshots/03-packet-detail.png) | [![Overview](screenshots/04-overview.png)](screenshots/04-overview.png) |
+| **Packet detail:** protocol tree and bytes, dissected in the browser (Wireshark as WebAssembly) | **Overview:** running capture with the effective filter, stop; files in use cannot be deleted |
+
 ## Quick start
 
 1. Enable the remote capture server on the IRF (see [Configure the IRF](#configure-the-irf)).
