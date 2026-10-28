@@ -6,8 +6,9 @@
 Enables Docker, pins the Docker DHCP pool to a single address, enables the
 IRF's remote capture server (rpcapd) for that address only and reachable only
 on the Docker interface, and forwards the SSH port of the container from the
-LAN interface. On firmware 3.0 (INPUT default-deny) it also checks that the
-INPUT allow table opens tcp/2002 and tcp/2003 on the Docker interface only.
+LAN interface. On firmware 3.0 and later (INPUT default-deny) it also checks
+that the INPUT allow table opens tcp/2002 and tcp/2003 on the Docker
+interface only; older firmware has no such table and the step is skipped.
 
 Requires the ads-tec JSON-RPC client library (jsonrpcdevice.py) and requests:
     https://github.com/ads-tec/Python-AdstecJSONRPCDevice
@@ -85,14 +86,35 @@ def table_rows(dev, table):
         return None
 
 
+# Interface variables of the INPUT filter on firmware 3.0 (input_allow_ifvars).
+# Older firmware has no such table, but the same interfaces: in "IP router
+# (extended)" mode lan_port1..7 (ETH2..) are not in the symbolic interface
+# list, and INPUT accepts everything that rpcap_access does not deny.
+KNOWN_IFVARS = (["lan_ifname", "wan_ifname", "wan2_ifname"]
+                + [f"lan_port{i}_ifname" for i in range(1, 8)]
+                + ["docker_ifname", "wlan_ifname", "vpn10_ifname", "umts_ifname"])
+
+
+def has_input_allow(dev):
+    """Firmware 3.0 and later: INPUT default-deny with the allow table.
+
+    Detected by its service catalogue, which every such firmware ships with
+    rows (tcp/2002 + tcp/2003 for rpcap_access among them). Older firmware
+    has no catalogue; then rpcap_access alone controls the access.
+    """
+    return any(r.get("ias_var") == "rpcap_access"
+               for r in table_rows(dev, "input_allow_services") or [])
+
+
 def interface_names(dev):
     """Native names of all configured interfaces.
 
-    The symbolic interfaces, plus on firmware 3.0 the variables of
-    input_allow_ifvars (the INPUT filter's interface universe, which also
-    holds lan_port1..7 = ETH2.. in "IP router (extended)" mode).
+    The symbolic interfaces, the known interface variables and on firmware
+    3.0 the variables of input_allow_ifvars (the INPUT filter's interface
+    universe). Variables the firmware does not have are skipped.
     """
     variables = [f"{n}_ifname" for n in dev.status("symbolic_ifnames_with_umts_with_ipsec").split()]
+    variables += KNOWN_IFVARS
     variables += [r["iai_var"] for r in table_rows(dev, "input_allow_ifvars") or []]
     names = set()
     for var in dict.fromkeys(variables):
@@ -112,9 +134,11 @@ def check_input_allow(dev, docker_ifname, enabled):
     "open on the Docker interface" (or nowhere when disabled): add missing
     rows, remove rows of other interfaces.
     """
+    if not has_input_allow(dev):
+        return "input_allow: not on this firmware (before 3.0), rpcap_access only"
     rows = table_rows(dev, "input_allow")
     if rows is None:
-        return "no input_allow table (firmware < 3.0), rpcap_access only"
+        return "input_allow: table not readable, check the INPUT filter in the web interface"
     rpcap = [r for r in rows if r["ia_proto"] == "tcp" and r["ia_port"] in RPCAP_PORTS]
     extra = [r for r in rpcap if not enabled or r["ia_ifname"] != docker_ifname]
     have = {r["ia_port"] for r in rpcap if r["ia_ifname"] == docker_ifname}

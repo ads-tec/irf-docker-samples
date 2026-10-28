@@ -214,7 +214,7 @@ python3 setup_rpcap.py --help
 The script:
 - enables Docker and pins the Docker DHCP pool to `10.0.3.100`
 - enables the remote capture server for the client `10.0.3.100` only (`rpcap_hostlist`) and denies it on every interface except the Docker interface (`rpcap_access`)
-- firmware 3.0 (INPUT default-deny): checks that the INPUT allow table opens tcp/2002 and tcp/2003 on the Docker interface only
+- firmware 3.0 and later (INPUT default-deny): checks that the INPUT allow table opens tcp/2002 and tcp/2003 on the Docker interface only; older firmware has no such table, the step is skipped and `rpcap_access` alone controls the access
 - forwards tcp/2223 (SSH) and with `--web` tcp/8085 from the interface that holds `--device` to the container
 - `--disable`: remote capture off, the allow rows and the forwarding rules removed
 
