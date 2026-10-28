@@ -25,6 +25,109 @@ br0/ETH1/... -> rpcapd :2002/:2003  <-----  rpcapcat -> tshark -> /captures/*.pc
 | [![Packet detail](screenshots/03-packet-detail.png)](screenshots/03-packet-detail.png) | [![Overview](screenshots/04-overview.png)](screenshots/04-overview.png) |
 | **Packet detail:** protocol tree and bytes, dissected in the browser (Wireshark as WebAssembly) | **Overview:** running capture with the effective filter, stop; files in use cannot be deleted |
 
+## How it works
+
+### Components: what runs where
+
+The IRF captures, the container only receives. Thick arrows are packets, from the IRF's interfaces at the top to the screen at the bottom; dashed arrows are control. Everything the browser shows comes from pcapng files that the container writes and the browser dissects itself.
+
+```mermaid
+flowchart TB
+    subgraph IRF["IRF3000 firmware (host)"]
+        NIC["Interfaces<br/>br0, ETH1..4, br1, wwan1, ..."]
+        RPD["rpcapd<br/>tcp/2002 control, tcp/2003 data<br/>only for 10.0.3.100"]
+    end
+
+    subgraph CT["Container irf-capture (rootless Docker, 10.0.3.100)"]
+        RC["rpcapcat<br/>rpcap client"]
+        TS["tshark / dumpcap"]
+        CAP[("/captures<br/>*.pcapng, tmpfs 200 MB")]
+        CW["capture-web (Go)<br/>live capture page, file list,<br/>webshark API"]
+        NG["nginx<br/>HTTPS :8085"]
+        SD["sshd :2223<br/>capture, record, sftp"]
+    end
+
+    subgraph PC["Engineering PC"]
+        BR["Browser<br/>webshark UI with Wireshark<br/>as WebAssembly"]
+        SC["SSH client<br/>or local Wireshark"]
+    end
+
+    NIC ==>|"packets, filtered<br/>on the IRF (BPF)"| RPD
+    RPD ==>|"rpcap over lxcbr0"| RC
+    RC ==>|"pcap (pipe)"| TS
+    TS ==>|pcapng| CAP
+    CAP ==> CW
+    CW ==> NG
+    NG ==>|"HTTPS, IRF port<br/>forwarding tcp/8085"| BR
+    TS ==>|text| SD
+    RC ==>|raw pcap| SD
+    SD ==>|"SSH, IRF port<br/>forwarding tcp/2223"| SC
+
+    BR -.->|"Start / Stop"| NG
+    CW -.->|"starts"| RC
+```
+
+SSH host keys, the generated passwords and the TLS certificate are kept in a separate volume, `/state`.
+
+### A live capture, step by step
+
+```mermaid
+sequenceDiagram
+    autonumber
+    box Engineering PC
+        actor U as User
+        participant B as Browser
+    end
+    box Container irf-capture
+        participant W as capture-web
+        participant F as /captures/live_*.pcapng
+        participant T as tshark
+        participant R as rpcapcat
+    end
+    box IRF firmware
+        participant D as rpcapd
+    end
+
+    U->>B: interface, capture filter, Start
+    B->>W: POST /capture/api/start
+    W->>R: rpcapcat -f "filter" br0
+    W->>T: tshark -i - -w live_*.pcapng
+    R->>D: tcp/2002: open br0, set filter
+    D-->>R: tcp/2003: matching packets only
+    R->>T: pcap stream (pipe)
+    T->>F: append packets
+    W-->>B: capture started, open webshark
+    B->>W: GET /webshark/captures/live_*.pcapng
+    W-->>B: pcapng bytes
+    Note over B: Wireshark compiled to WebAssembly<br/>dissects in the browser:<br/>packet list, protocol tree, hex
+    B->>W: GET /webshark/watch (server-sent events)
+    loop while the file grows
+        W-->>B: capture-changed (new size)
+        B->>W: fetch the file again
+        Note over B: new packets appended to the list
+    end
+    U->>B: Stop
+    B->>W: POST /capture/api/stop
+    W->>R: SIGTERM
+    R-->>D: close remote capture
+    T->>F: close pcapng (file stays)
+```
+
+### Where the displayed data comes from
+
+| Shown in | Element | Source |
+|---|---|---|
+| live capture page | interface list | `rpcapcat -l`: the rpcapd lists the IRF's interfaces (`pcap_findalldevs_ex`) |
+| live capture page | running captures, state, exit message | capture-web (processes it started, rpcapcat statistics) |
+| live capture page | file list | directory listing of `/captures` |
+| live capture page | disk bar, reserve | `statfs` of `/captures` (tmpfs or Docker partition), `CAPTURE_MIN_FREE` |
+| webshark | packet list, protocol tree, hex, statistics, follow stream | the pcapng file, downloaded by the browser and dissected there by Wireshark (WASM); no dissection on the IRF or in the container |
+| webshark | live follow | `/webshark/watch`: capture-web reports the growing file size, the browser fetches the file again |
+| SSH (`capture`) | packet list as text | tshark in the container, reading the pcap stream from rpcapcat |
+| local Wireshark | packets | `ssh ... rpcapcat ...`: the raw pcap stream over SSH, dissected on the PC |
+
+In every case the packets themselves come from the IRF's interfaces via the rpcapd; the capture filter is applied on the IRF before anything crosses the Docker interface.
+
 ## Quick start
 
 1. Enable the remote capture server on the IRF (see [Configure the IRF](#configure-the-irf)).
